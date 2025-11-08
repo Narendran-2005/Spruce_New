@@ -11,3 +11,4 @@ public interface GroupRepository extends JpaRepository<Group, Long> {
     List<Group> findByOwnerId(Long ownerId);
 }
 
+

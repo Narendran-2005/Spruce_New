@@ -7,17 +7,34 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/users")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
 public class UserController {
     
     @Autowired
     private UserService userService;
+
+    @GetMapping("/{id}/keys")
+    public ResponseEntity<Map<String, String>> getUserKeys(@PathVariable Long id) {
+        Optional<User> userOpt = userService.findById(id);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        
+        User user = userOpt.get();
+        Map<String, String> keys = new HashMap<>();
+        keys.put("perm_pub_x25519", user.getPermPubX25519() != null ? user.getPermPubX25519() : "");
+        keys.put("kyber_pub", user.getKyberPub() != null ? user.getKyberPub() : "");
+        keys.put("dilithium_pub", user.getDilithiumPub() != null ? user.getDilithiumPub() : "");
+        
+        return ResponseEntity.ok(keys);
+    }
 
     @GetMapping("/profile")
     public ResponseEntity<User> getProfile(Authentication authentication) {
@@ -60,9 +77,9 @@ public class UserController {
         User currentUser = userService.findById(user.getId()).orElse(null);
         
         if (currentUser != null) {
-            if (keys.containsKey("x25519PublicKey")) currentUser.setX25519PublicKey(keys.get("x25519PublicKey"));
-            if (keys.containsKey("kyberPublicKey")) currentUser.setKyberPublicKey(keys.get("kyberPublicKey"));
-            if (keys.containsKey("dilithiumPublicKey")) currentUser.setDilithiumPublicKey(keys.get("dilithiumPublicKey"));
+            if (keys.containsKey("perm_pub_x25519")) currentUser.setPermPubX25519(keys.get("perm_pub_x25519"));
+            if (keys.containsKey("kyber_pub")) currentUser.setKyberPub(keys.get("kyber_pub"));
+            if (keys.containsKey("dilithium_pub")) currentUser.setDilithiumPub(keys.get("dilithium_pub"));
             
             return ResponseEntity.ok(userService.updateUser(currentUser));
         }
@@ -76,4 +93,5 @@ public class UserController {
         return ResponseEntity.ok(users);
     }
 }
+
 

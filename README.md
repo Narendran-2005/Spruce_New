@@ -57,6 +57,10 @@ Spruce_New/
 
 ### 1. Database Setup
 
+**Option A: H2 (Development - No setup required)**
+The backend is configured to use H2 in-memory database by default. Just run the server.
+
+**Option B: PostgreSQL (Production)**
 ```bash
 # Create PostgreSQL database
 sudo -u postgres psql
@@ -66,6 +70,8 @@ CREATE USER spruce_user WITH PASSWORD 'spruce_pass';
 GRANT ALL PRIVILEGES ON DATABASE spruce_db TO spruce_user;
 \q
 ```
+
+Then update `Spruce-Server/src/main/resources/application.properties` to use PostgreSQL (see backend README).
 
 ### 2. Backend Setup
 
@@ -93,15 +99,41 @@ npm install
 npm run dev
 ```
 
-Client runs on `http://localhost:3000`
+Client runs on `http://localhost:5173` (Vite default port)
+
+**Note:** The client is configured to connect to `http://localhost:8080/api` by default. If your backend runs on a different port, create a `.env` file:
+
+```env
+VITE_API_BASE_URL=http://localhost:8080/api
+VITE_WS_URL=ws://localhost:8080/ws
+```
 
 ## 📝 API Documentation
 
 ### Authentication
 - `POST /api/auth/register` - Register new user
+  ```json
+  {
+    "username": "user1",
+    "password": "password123",
+    "publicKeys": {
+      "perm_pub_x25519": "...",
+      "kyber_pub": "...",
+      "dilithium_pub": "..."
+    }
+  }
+  ```
 - `POST /api/auth/login` - Login user
+  ```json
+  {
+    "username": "user1",
+    "password": "password123"
+  }
+  ```
+- `GET /api/auth/me` - Get current user (requires JWT)
 
 ### Users
+- `GET /api/users/{id}/keys` - Get user's public keys (for key exchange)
 - `GET /api/users/profile` - Get current user profile
 - `PUT /api/users/profile` - Update profile
 - `GET /api/users/search?q=query` - Search users
@@ -118,12 +150,45 @@ Client runs on `http://localhost:3000`
 - `POST /api/groups/{id}/leave` - Leave group
 
 ### Messages
-- `GET /api/messages/conversation/{userId}` - Get conversation history
+- `GET /api/messages/history/{peerId}` - Get message history with a user (requires JWT)
+- `POST /api/messages/send` - Send a message via REST (requires JWT)
+  ```json
+  {
+    "receiverId": 2,
+    "ciphertext": "...",
+    "iv": "..."
+  }
+  ```
+- `GET /api/messages/conversation/{userId}` - Get conversation history (legacy)
 - `GET /api/messages/group/{groupId}` - Get group messages
 
 ### WebSocket
-- Endpoint: `ws://localhost:8080/ws`
-- Message types: `register`, `handshake`, `message`
+- Endpoint: `ws://localhost:8080/ws?token=<JWT_TOKEN>`
+- Authentication: JWT token required in query parameter
+- Message types: `handshake`, `message`
+
+**Handshake Message:**
+```json
+{
+  "type": "handshake",
+  "receiverId": 2,
+  "protocol_version": "spruce-hybrid-v1",
+  "eph_pub": "...",
+  "kyber_ct": "...",
+  "timestamp": 1234567890,
+  "signature": "..."
+}
+```
+
+**Message:**
+```json
+{
+  "type": "message",
+  "receiverId": 2,
+  "ciphertext": "...",
+  "iv": "..."
+}
+```
 
 ## 🔐 Encryption Workflow
 
@@ -175,12 +240,13 @@ Session keys are stored locally in browser storage, allowing message decryption 
 curl -X POST http://localhost:8080/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "user@example.com",
-    "password": "password123",
     "username": "testuser",
-    "x25519PublicKey": "key1",
-    "kyberPublicKey": "key2",
-    "dilithiumPublicKey": "key3"
+    "password": "password123",
+    "publicKeys": {
+      "perm_pub_x25519": "test_key_1",
+      "kyber_pub": "test_key_2",
+      "dilithium_pub": "test_key_3"
+    }
   }'
 ```
 
@@ -189,7 +255,7 @@ curl -X POST http://localhost:8080/api/auth/register \
 curl -X POST http://localhost:8080/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "user@example.com",
+    "username": "testuser",
     "password": "password123"
   }'
 ```
@@ -268,4 +334,5 @@ Built with ❤️ for Post-Quantum Security
 ---
 
 **🌲 Spruce - When Quantum Security Meets Modern Messaging**
+
 

@@ -31,6 +31,9 @@ public class Message {
     private String ciphertext;
 
     @Column(columnDefinition = "TEXT")
+    private String iv; // Base64 encoded IV for AES-GCM
+
+    @Column(columnDefinition = "TEXT")
     private String metadata; // JSON metadata
 
     @CreationTimestamp
@@ -41,4 +44,5 @@ public class Message {
         return groupId != null;
     }
 }
+
 

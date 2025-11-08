@@ -3,20 +3,54 @@ package com.spruce.controller;
 import com.spruce.model.Contact;
 import com.spruce.model.User;
 import com.spruce.repository.ContactRepository;
+import com.spruce.repository.UserRepository;
+import com.spruce.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/contacts")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
 public class ContactController {
     
     @Autowired
     private ContactRepository contactRepository;
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private UserService userService;
+
+    @GetMapping
+    public ResponseEntity<List<Map<String, Object>>> getContacts(Authentication authentication) {
+        User currentUser = (User) authentication.getPrincipal();
+        
+        // Simplified: Return all users except current user
+        // In production, filter by accepted contacts only
+        List<User> allUsers = userRepository.findAll().stream()
+            .filter(u -> !u.getId().equals(currentUser.getId()))
+            .collect(Collectors.toList());
+        
+        List<Map<String, Object>> contactList = allUsers.stream()
+            .map(user -> {
+                Map<String, Object> userMap = new HashMap<>();
+                userMap.put("id", user.getId());
+                userMap.put("username", user.getUsername());
+                userMap.put("status", user.getStatus() != null ? user.getStatus() : "offline");
+                return userMap;
+            })
+            .collect(Collectors.toList());
+        
+        return ResponseEntity.ok(contactList);
+    }
 
     @PostMapping("/add/{userId}")
     public ResponseEntity<Contact> addContact(Authentication authentication, @PathVariable Long userId) {
@@ -25,33 +59,10 @@ public class ContactController {
         Contact contact = new Contact();
         contact.setUserId(currentUser.getId());
         contact.setContactId(userId);
-        contact.setStatus("pending");
+        contact.setStatus("accepted"); // Auto-accept for simplicity
         
         return ResponseEntity.ok(contactRepository.save(contact));
     }
-
-    @DeleteMapping("/remove/{userId}")
-    public ResponseEntity<Void> removeContact(Authentication authentication, @PathVariable Long userId) {
-        User currentUser = (User) authentication.getPrincipal();
-        contactRepository.findContact(currentUser.getId(), userId).ifPresent(contactRepository::delete);
-        return ResponseEntity.ok().build();
-    }
-
-    @GetMapping
-    public ResponseEntity<List<Contact>> getContacts(Authentication authentication) {
-        User currentUser = (User) authentication.getPrincipal();
-        List<Contact> contacts = contactRepository.findByUserIdAndStatus(currentUser.getId(), "accepted");
-        return ResponseEntity.ok(contacts);
-    }
-
-    @PostMapping("/accept/{contactId}")
-    public ResponseEntity<Contact> acceptContact(@PathVariable Long contactId) {
-        Contact contact = contactRepository.findById(contactId).orElse(null);
-        if (contact != null) {
-            contact.setStatus("accepted");
-            return ResponseEntity.ok(contactRepository.save(contact));
-        }
-        return ResponseEntity.notFound().build();
-    }
 }
+
 

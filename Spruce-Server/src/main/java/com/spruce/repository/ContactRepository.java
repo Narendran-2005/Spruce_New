@@ -19,3 +19,4 @@ public interface ContactRepository extends JpaRepository<Contact, Long> {
     Optional<Contact> findContact(@Param("userId") Long userId, @Param("contactId") Long contactId);
 }
 
+

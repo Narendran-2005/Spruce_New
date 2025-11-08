@@ -20,46 +20,61 @@ public class AuthService {
     @Autowired
     private JwtService jwtService;
 
-    public Map<String, Object> register(User user) {
+    public Map<String, Object> register(String username, String password, Map<String, String> publicKeys) {
         Map<String, Object> response = new HashMap<>();
         
-        if (userService.existsByEmail(user.getEmail())) {
-            response.put("success", false);
-            response.put("message", "Email already exists");
-            return response;
-        }
-        
-        if (userService.existsByUsername(user.getUsername())) {
+        if (userService.existsByUsername(username)) {
             response.put("success", false);
             response.put("message", "Username already exists");
             return response;
         }
         
-        User registeredUser = userService.register(user);
-        String token = jwtService.generateToken(registeredUser.getEmail());
+        User user = new User();
+        user.setUsername(username);
+        user.setPassword(password);
+        user.setPermPubX25519(publicKeys.get("perm_pub_x25519"));
+        user.setKyberPub(publicKeys.get("kyber_pub"));
+        user.setDilithiumPub(publicKeys.get("dilithium_pub"));
+        user.setStatus("online");
         
-        response.put("success", true);
+        User registeredUser = userService.register(user);
+        String token = jwtService.generateToken(registeredUser.getUsername());
+        
+        // Return user data without password
+        Map<String, Object> userData = new HashMap<>();
+        userData.put("id", registeredUser.getId());
+        userData.put("username", registeredUser.getUsername());
+        userData.put("status", registeredUser.getStatus());
+        
         response.put("token", token);
-        response.put("user", registeredUser);
+        response.put("user", userData);
         return response;
     }
 
-    public Map<String, Object> login(String email, String password) {
+    public Map<String, Object> login(String username, String password) {
         Map<String, Object> response = new HashMap<>();
         
-        User user = userService.findByEmail(email).orElse(null);
+        User user = userService.findByUsername(username).orElse(null);
         if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
-            response.put("success", false);
-            response.put("message", "Invalid credentials");
-            return response;
+            throw new RuntimeException("Invalid credentials");
         }
         
-        String token = jwtService.generateToken(user.getEmail());
+        String token = jwtService.generateToken(user.getUsername());
         
-        response.put("success", true);
+        // Return user data without password
+        Map<String, Object> userData = new HashMap<>();
+        userData.put("id", user.getId());
+        userData.put("username", user.getUsername());
+        userData.put("status", user.getStatus());
+        
         response.put("token", token);
-        response.put("user", user);
+        response.put("user", userData);
         return response;
     }
+    
+    public User getCurrentUser(String username) {
+        return userService.findByUsername(username).orElse(null);
+    }
 }
+
 

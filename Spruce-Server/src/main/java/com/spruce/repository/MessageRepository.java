@@ -20,3 +20,4 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Message> findByGroupId(@Param("groupId") Long groupId);
 }
 
+

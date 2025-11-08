@@ -21,10 +21,8 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank
-    @Email
-    @Column(unique = true, nullable = false)
-    private String email;
+    @Column(unique = true)
+    private String email; // Optional, username is primary identifier
 
     @NotBlank
     @Column(nullable = false)
@@ -37,14 +35,14 @@ public class User {
     @Column(columnDefinition = "TEXT")
     private String avatar;
 
-    @Column(name = "x25519_pub", columnDefinition = "TEXT")
-    private String x25519PublicKey;
+    @Column(name = "perm_pub_x25519", columnDefinition = "TEXT")
+    private String permPubX25519;
 
     @Column(name = "kyber_pub", columnDefinition = "TEXT")
-    private String kyberPublicKey;
+    private String kyberPub;
 
     @Column(name = "dilithium_pub", columnDefinition = "TEXT")
-    private String dilithiumPublicKey;
+    private String dilithiumPub;
 
     @Column(columnDefinition = "TEXT")
     private String bio;
@@ -59,4 +57,5 @@ public class User {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 }
+
 
