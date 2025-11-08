@@ -3,7 +3,6 @@ package com.spruce.controller;
 import com.spruce.model.Group;
 import com.spruce.model.User;
 import com.spruce.repository.GroupRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -14,11 +13,14 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/groups")
-@CrossOrigin(origins = "http://localhost:3000")
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
 public class GroupController {
     
-    @Autowired
-    private GroupRepository groupRepository;
+    private final GroupRepository groupRepository;
+
+    public GroupController(GroupRepository groupRepository) {
+        this.groupRepository = groupRepository;
+    }
 
     @PostMapping("/create")
     public ResponseEntity<Group> createGroup(Authentication authentication, @RequestBody Group group) {

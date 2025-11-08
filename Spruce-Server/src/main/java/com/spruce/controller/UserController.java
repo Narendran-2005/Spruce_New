@@ -2,7 +2,6 @@ package com.spruce.controller;
 
 import com.spruce.model.User;
 import com.spruce.service.UserService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -17,8 +16,11 @@ import java.util.Optional;
 @CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
 public class UserController {
     
-    @Autowired
-    private UserService userService;
+    private final UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
 
     @GetMapping("/{id}/keys")
     public ResponseEntity<Map<String, String>> getUserKeys(@PathVariable Long id) {

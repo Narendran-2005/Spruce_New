@@ -1,7 +1,6 @@
 package com.spruce.config;
 
 import com.spruce.websocket.SpruceWebSocketHandler;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -11,8 +10,11 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 @EnableWebSocket
 public class WebSocketConfig implements WebSocketConfigurer {
     
-    @Autowired
-    private SpruceWebSocketHandler webSocketHandler;
+    private final SpruceWebSocketHandler webSocketHandler;
+
+    public WebSocketConfig(SpruceWebSocketHandler webSocketHandler) {
+        this.webSocketHandler = webSocketHandler;
+    }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {

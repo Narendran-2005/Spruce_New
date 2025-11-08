@@ -3,7 +3,6 @@ package com.spruce.controller;
 import com.spruce.model.User;
 import com.spruce.service.AuthService;
 import com.spruce.service.JwtService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -15,11 +14,13 @@ import java.util.Map;
 @CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
 public class AuthController {
     
-    @Autowired
-    private AuthService authService;
-    
-    @Autowired
-    private JwtService jwtService;
+    private final AuthService authService;
+    private final JwtService jwtService;
+
+    public AuthController(AuthService authService, JwtService jwtService) {
+        this.authService = authService;
+        this.jwtService = jwtService;
+    }
 
     @PostMapping("/register")
     public ResponseEntity<Map<String, Object>> register(@RequestBody Map<String, Object> request) {

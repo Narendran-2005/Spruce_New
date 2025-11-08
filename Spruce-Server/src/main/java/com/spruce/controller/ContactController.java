@@ -5,7 +5,6 @@ import com.spruce.model.User;
 import com.spruce.repository.ContactRepository;
 import com.spruce.repository.UserRepository;
 import com.spruce.service.UserService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -20,14 +19,15 @@ import java.util.stream.Collectors;
 @CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000"})
 public class ContactController {
     
-    @Autowired
-    private ContactRepository contactRepository;
-    
-    @Autowired
-    private UserRepository userRepository;
-    
-    @Autowired
-    private UserService userService;
+    private final ContactRepository contactRepository;
+    private final UserRepository userRepository;
+    private final UserService userService;
+
+    public ContactController(ContactRepository contactRepository, UserRepository userRepository, UserService userService) {
+        this.contactRepository = contactRepository;
+        this.userRepository = userRepository;
+        this.userService = userService;
+    }
 
     @GetMapping
     public ResponseEntity<List<Map<String, Object>>> getContacts(Authentication authentication) {

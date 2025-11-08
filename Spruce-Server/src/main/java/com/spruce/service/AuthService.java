@@ -1,7 +1,6 @@
 package com.spruce.service;
 
 import com.spruce.model.User;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -11,14 +10,15 @@ import java.util.Map;
 @Service
 public class AuthService {
     
-    @Autowired
-    private UserService userService;
-    
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-    
-    @Autowired
-    private JwtService jwtService;
+    private final UserService userService;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+
+    public AuthService(UserService userService, PasswordEncoder passwordEncoder, JwtService jwtService) {
+        this.userService = userService;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+    }
 
     public Map<String, Object> register(String username, String password, Map<String, String> publicKeys) {
         Map<String, Object> response = new HashMap<>();

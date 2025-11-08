@@ -8,7 +8,6 @@ import com.spruce.repository.UserRepository;
 import com.spruce.service.JwtService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -32,16 +31,16 @@ public class SpruceWebSocketHandler extends TextWebSocketHandler {
     // Map sessionId -> userId for reverse lookup
     private final Map<String, Long> sessionToUserId = new ConcurrentHashMap<>();
     
-    @Autowired
-    private MessageRepository messageRepository;
-    
-    @Autowired
-    private UserRepository userRepository;
-    
-    @Autowired
-    private JwtService jwtService;
-    
+    private final MessageRepository messageRepository;
+    private final UserRepository userRepository;
+    private final JwtService jwtService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public SpruceWebSocketHandler(MessageRepository messageRepository, UserRepository userRepository, JwtService jwtService) {
+        this.messageRepository = messageRepository;
+        this.userRepository = userRepository;
+        this.jwtService = jwtService;
+    }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {

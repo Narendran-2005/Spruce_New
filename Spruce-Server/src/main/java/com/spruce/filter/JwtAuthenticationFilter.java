@@ -1,29 +1,32 @@
 package com.spruce.filter;
 
+import com.spruce.model.User;
+import com.spruce.repository.UserRepository;
 import com.spruce.service.JwtService;
-import com.spruce.service.UserService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
-@Component
+/**
+ * JWT Authentication Filter - validates JWT tokens and sets authentication context.
+ * Uses UserRepository directly to avoid circular dependency with UserService.
+ */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     
-    @Autowired
-    private JwtService jwtService;
-    
-    @Autowired
-    private UserService userService;
+    private final JwtService jwtService;
+    private final UserRepository userRepository;
+
+    public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository) {
+        this.jwtService = jwtService;
+        this.userRepository = userRepository;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, 
@@ -39,11 +42,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         final String username = jwtService.extractUsername(token);
 
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            var user = userService.findByUsername(username);
+            var userOpt = userRepository.findByUsername(username);
             
-            if (user.isPresent() && jwtService.validateToken(token)) {
+            if (userOpt.isPresent() && jwtService.validateToken(token)) {
+                User user = userOpt.get();
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                    user.get(), null, null
+                    user, null, null
                 );
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);

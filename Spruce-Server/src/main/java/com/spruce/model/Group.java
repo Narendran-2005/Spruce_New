@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -29,8 +31,12 @@ public class Group {
     @Column(name = "owner_id", nullable = false)
     private Long ownerId;
 
-    @ElementCollection
-    @CollectionTable(name = "group_members", joinColumns = @JoinColumn(name = "group_id"))
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(
+        name = "group_members", 
+        joinColumns = @JoinColumn(name = "group_id"),
+        foreignKey = @ForeignKey(name = "fk_group_members_group")
+    )
     @Column(name = "user_id")
     private Set<Long> memberIds = new HashSet<>();
 
