@@ -61,13 +61,23 @@ async function initPQCLibraries() {
     kyber = kyberModuleRaw.default || kyberModuleRaw.kyber768 || kyberModuleRaw;
     dilithium = dilithiumModuleRaw.default || dilithiumModuleRaw.dilithium3 || dilithiumModuleRaw;
 
+    // Verify kyber has required functions
+    if (!kyber || typeof kyber.encapsulate !== 'function' || typeof kyber.decapsulate !== 'function') {
+      throw new Error('Kyber module missing required functions');
+    }
+
+    // Verify dilithium has required functions
+    if (!dilithium || typeof dilithium.sign !== 'function' || typeof dilithium.verify !== 'function') {
+      throw new Error('Dilithium module missing required functions');
+    }
+
     // Optional internal inits
     if (kyber && typeof kyber.init === 'function') await kyber.init();
     if (dilithium && typeof dilithium.init === 'function') await dilithium.init();
 
     return true;
   } catch (err) {
-    console.warn('⚠️ PQC libraries not available, falling back to simulated crypto:', err);
+    console.warn('⚠️ PQC libraries not available, falling back to simulated crypto:', err.message || err);
     CRYPTO_CONFIG.useRealCrypto = false;
     return false;
   }
@@ -147,14 +157,29 @@ export async function kyberEncapsulate(recipientPublicKeyBase64) {
   await pqcReady;
   if (CRYPTO_CONFIG.useRealCrypto && kyber) {
     try {
+      if (!recipientPublicKeyBase64) {
+        throw new Error('Recipient public key is required');
+      }
+      
       const recipientPublicKey = base64ToUint8(recipientPublicKeyBase64);
-      const { ciphertext, sharedSecret } = kyber.encapsulate(recipientPublicKey);
+      
+      if (!kyber.encapsulate || typeof kyber.encapsulate !== 'function') {
+        throw new Error('Kyber encapsulate function not available');
+      }
+      
+      const result = kyber.encapsulate(recipientPublicKey);
+      
+      if (!result || !result.ciphertext || !result.sharedSecret) {
+        throw new Error('Kyber encapsulation returned invalid result');
+      }
+      
       return {
-        ciphertext: uint8ToBase64(ciphertext),
-        sharedSecret: uint8ToBase64(sharedSecret),
+        ciphertext: uint8ToBase64(result.ciphertext),
+        sharedSecret: uint8ToBase64(result.sharedSecret),
       };
     } catch (err) {
       console.error('Error in Kyber encapsulation:', err);
+      console.warn('Falling back to simulated crypto');
       CRYPTO_CONFIG.useRealCrypto = false;
       return kyberEncapsulateSimulated();
     }

@@ -27,12 +27,17 @@ export default function useWebSocket() {
   }, []);
 
   const connectWebSocket = useCallback(() => {
-    if (!token || isConnectingRef.current) return;
+    if (!token) return;
     
-    // Close existing connection if any
-    if (wsRef.current) {
+    // Prevent multiple simultaneous connection attempts
+    if (isConnectingRef.current || (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    
+    // Close existing connection if any (but not if it's already closing/closed)
+    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED && wsRef.current.readyState !== WebSocket.CLOSING) {
       shouldReconnectRef.current = false;
-      wsRef.current.close();
+      wsRef.current.close(1000, 'Reconnecting');
       wsRef.current = null;
     }
 
@@ -143,13 +148,19 @@ export default function useWebSocket() {
       ws.onclose = (event) => {
         isConnectingRef.current = false;
         
-        // Don't log normal closures
+        // Don't log normal closures or expected closures
         if (event.code !== 1000 && event.code !== 1001) {
-          console.log('🔌 WebSocket closed:', event.code, event.reason || 'No reason provided');
+          // Code 1006 (abnormal closure) can happen if connection fails before establishment
+          if (event.code === 1006) {
+            console.log('🔌 WebSocket connection closed abnormally (may be server not ready)');
+          } else {
+            console.log('🔌 WebSocket closed:', event.code, event.reason || 'No reason provided');
+          }
         }
         
         // Only reconnect if we should and it wasn't a normal closure
-        if (shouldReconnectRef.current && event.code !== 1000 && event.code !== 1001) {
+        // Don't reconnect on 1009 (message too big) - that's a different issue
+        if (shouldReconnectRef.current && event.code !== 1000 && event.code !== 1001 && event.code !== 1009) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
           reconnectAttemptsRef.current++;
           
@@ -159,6 +170,8 @@ export default function useWebSocket() {
               connectWebSocket();
             }
           }, delay);
+        } else if (event.code === 1009) {
+          console.error('❌ WebSocket message too large. Check server buffer size configuration.');
         }
       };
       
@@ -257,7 +270,15 @@ export default function useWebSocket() {
       };
       
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify(handshakeMessage));
+        const messageStr = JSON.stringify(handshakeMessage);
+        const messageSize = new Blob([messageStr]).size;
+        
+        // Warn if message is large (but still send it)
+        if (messageSize > 100000) { // 100KB
+          console.warn(`⚠️ Large handshake message: ${(messageSize / 1024).toFixed(2)}KB`);
+        }
+        
+        wsRef.current.send(messageStr);
         console.log('📤 Handshake sent to peer:', peerId);
       } else {
         throw new Error('WebSocket not connected');
@@ -304,7 +325,15 @@ export default function useWebSocket() {
         ciphertext: toBase64(ciphertext)
       };
       
-      wsRef.current.send(JSON.stringify(message));
+      const messageStr = JSON.stringify(message);
+      const messageSize = new Blob([messageStr]).size;
+      
+      // Warn if message is large
+      if (messageSize > 100000) { // 100KB
+        console.warn(`⚠️ Large message: ${(messageSize / 1024).toFixed(2)}KB`);
+      }
+      
+      wsRef.current.send(messageStr);
       console.log('✅ Message sent to peer:', peerId);
       
       // Add to local chat immediately (use normalized peerId for storage)
