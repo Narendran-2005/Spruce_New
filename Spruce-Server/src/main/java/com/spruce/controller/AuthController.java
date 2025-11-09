@@ -2,7 +2,6 @@ package com.spruce.controller;
 
 import com.spruce.model.User;
 import com.spruce.service.AuthService;
-import com.spruce.service.JwtService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -15,11 +14,9 @@ import java.util.Map;
 public class AuthController {
     
     private final AuthService authService;
-    private final JwtService jwtService;
 
-    public AuthController(AuthService authService, JwtService jwtService) {
+    public AuthController(AuthService authService) {
         this.authService = authService;
-        this.jwtService = jwtService;
     }
 
     @PostMapping("/register")
@@ -66,5 +63,8 @@ public class AuthController {
         return ResponseEntity.ok(userData);
     }
 }
+
+
+
 
 

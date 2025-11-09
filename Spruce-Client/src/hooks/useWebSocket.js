@@ -38,9 +38,9 @@ export default function useWebSocket() {
           // Perform receiver side handshake and store session key
           const perm = decodePermanentKeys(await loadKeys());
           const senderPub = {
-            x25519: fromBase64(data.sender_pub_x25519),
-            kyber: fromBase64(data.sender_kyber_pub),
-            dilithium: fromBase64(data.sender_dilithium_pub)
+            x25519: data.sender_pub_x25519, // Already base64 from server
+            kyber: data.sender_kyber_pub, // Already base64 from server
+            dilithium: data.sender_dilithium_pub // Already base64 from server
           };
           const { session_key } = await receiverHandshake(perm, senderPub, {
             eph_pub: fromBase64(data.eph_pub),
@@ -57,7 +57,8 @@ export default function useWebSocket() {
           const plaintext = await aesDecrypt(
             fromBase64(data.ciphertext),
             sess.key,
-            fromBase64(data.iv)
+            fromBase64(data.iv),
+            '' // aad
           );
           const text = new TextDecoder().decode(plaintext);
           const updated = { ...chatsRef.current };
@@ -79,12 +80,16 @@ export default function useWebSocket() {
     const perm = decodePermanentKeys(await loadKeys());
     const pub = await getPublicKeys(peer.id);
     const receiverPub = {
-      x25519: fromBase64(pub.perm_pub_x25519),
-      kyber: fromBase64(pub.kyber_pub),
-      dilithium: fromBase64(pub.dilithium_pub)
+      x25519: pub.perm_pub_x25519, // Already base64 from server
+      kyber: pub.kyber_pub, // Already base64 from server
+      dilithium: pub.dilithium_pub // Already base64 from server
     };
     const { session_key, handshake } = await senderHandshake(perm, receiverPub);
     setSessionKey(peer.id, { key: session_key });
+    
+    // Get my public keys to send with handshake
+    const myKeys = await loadKeys();
+    
     // Send handshake to peer via WS
     wsRef.current?.send(JSON.stringify({
       type: 'handshake',
@@ -93,7 +98,10 @@ export default function useWebSocket() {
       eph_pub: toBase64(handshake.eph_pub),
       kyber_ct: toBase64(handshake.kyber_ct),
       timestamp: handshake.timestamp,
-      signature: toBase64(handshake.signature)
+      signature: toBase64(handshake.signature),
+      sender_pub_x25519: myKeys.perm_pub_x25519,
+      sender_kyber_pub: myKeys.kyber_pub,
+      sender_dilithium_pub: myKeys.dilithium_pub
     }));
     return { key: session_key };
   }, [sessions]);
@@ -101,7 +109,8 @@ export default function useWebSocket() {
   const sendSecureMessage = useCallback(async (peer, text) => {
     const sess = sessions[peer.id] || await ensureSession(peer);
     const plaintext = new TextEncoder().encode(text);
-    const { iv, ciphertext } = await aesEncrypt(plaintext, sess.key);
+    // aesEncrypt expects: (plaintextBytes, keyBytes, aad)
+    const { iv, ciphertext } = await aesEncrypt(plaintext, sess.key, '');
     wsRef.current?.send(JSON.stringify({
       type: 'message',
       receiverId: peer.id,

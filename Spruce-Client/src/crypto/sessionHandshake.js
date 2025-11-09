@@ -1,67 +1,102 @@
-import { x25519 } from '@noble/curves/ed25519';
-import * as Kyber from 'pqc-kyber';
-import { sha256Bytes, hkdfSha256 } from './hkdfUtils.js';
-import { dilithiumSign, dilithiumVerify } from './signatureUtils.js';
-import { concatBytes } from '../utils/keyUtils.js';
+import { 
+  generateEphemeralKey, 
+  kyberEncapsulate, 
+  kyberDecapsulate,
+  x25519KeyExchange,
+  deriveSessionKey,
+  dilithiumSign,
+  dilithiumVerify
+} from './encryption.js';
 
 const PROTOCOL_VERSION = 'spruce-hybrid-v1';
 
+/**
+ * Sender side handshake - establishes session key with receiver
+ * @param {Object} senderKeys - { x25519: base64, kyber: base64, dilithium: base64 }
+ * @param {Object} receiverPub - { x25519: base64, kyber: base64, dilithium: base64 }
+ * @returns {Object} { session_key: Uint8Array, handshake: {...} }
+ */
 export async function senderHandshake(senderKeys, receiverPub) {
-  // senderKeys: { x25519: {privateKey}, kyber: {}, dilithium: {privateKey} }
-  // receiverPub: { x25519: Uint8Array, kyber: Uint8Array, dilithium: Uint8Array }
-
-  // Ephemeral X25519
-  const ephPriv = x25519.utils.randomPrivateKey();
-  const ephPub = x25519.getPublicKey(ephPriv);
-
-  // Kyber encapsulate
-  const kyber = Kyber.kyber768 || Kyber;
-  const { cipherText: kyber_ct, sharedSecret: kyber_ss } = await kyber.encapsulate(receiverPub.kyber);
-
+  // Generate ephemeral X25519 keypair
+  const ephemeral = await generateEphemeralKey();
+  
+  // Kyber encapsulation
+  const { ciphertext: kyber_ct, sharedSecret: kyber_ss } = await kyberEncapsulate(receiverPub.kyber);
+  
   // X25519 shared secret
-  const x_ss = x25519.getSharedSecret(ephPriv, receiverPub.x25519);
-
-  // Derive session key via HKDF(SHA256(x_ss || kyber_ss))
-  const seed = sha256Bytes(concatBytes(x_ss, kyber_ss));
-  const salt = sha256Bytes(PROTOCOL_VERSION);
-  const session_key = hkdfSha256(seed, salt, 'hybrid-session', 32);
-
+  const x_ss = await x25519KeyExchange(ephemeral.private, receiverPub.x25519);
+  
+  // Derive hybrid session key
+  const session_key_base64 = await deriveSessionKey(x_ss, kyber_ss);
+  
+  // Create handshake message for signing
   const timestamp = Date.now();
-  const msg = concatBytes(
-    sha256Bytes(PROTOCOL_VERSION),
-    sha256Bytes(ephPub),
-    sha256Bytes(kyber_ct),
-    sha256Bytes(new TextEncoder().encode(String(timestamp)))
-  );
-  const signature = await dilithiumSign(senderKeys.dilithium.privateKey, msg);
-
+  const handshakeData = `${ephemeral.public}||${kyber_ct}||${timestamp}`;
+  
+  // Sign with Dilithium
+  const signature = await dilithiumSign(handshakeData, senderKeys.dilithium);
+  
+  // Convert session key to Uint8Array for compatibility
+  const session_key = base64ToUint8(session_key_base64);
+  
   return {
     session_key,
-    handshake: { protocol_version: PROTOCOL_VERSION, eph_pub: ephPub, kyber_ct, timestamp, signature }
+    handshake: {
+      protocol_version: PROTOCOL_VERSION,
+      eph_pub: base64ToUint8(ephemeral.public),
+      kyber_ct: base64ToUint8(kyber_ct),
+      timestamp,
+      signature: base64ToUint8(signature)
+    }
   };
 }
 
+/**
+ * Receiver side handshake - derives session key from sender's handshake
+ * @param {Object} receiverKeys - { x25519: base64, kyber: base64, dilithium: base64 }
+ * @param {Object} senderPub - { x25519: base64, kyber: base64, dilithium: base64 }
+ * @param {Object} handshake - { eph_pub: Uint8Array, kyber_ct: Uint8Array, timestamp: number, signature: Uint8Array }
+ * @returns {Object} { session_key: Uint8Array }
+ */
 export async function receiverHandshake(receiverKeys, senderPub, handshake) {
   const { eph_pub, kyber_ct, timestamp, signature } = handshake;
-
+  
+  // Convert Uint8Array to base64 for API
+  const eph_pub_b64 = uint8ToBase64(eph_pub);
+  const kyber_ct_b64 = uint8ToBase64(kyber_ct);
+  const signature_b64 = uint8ToBase64(signature);
+  
   // Verify signature
-  const msg = concatBytes(
-    sha256Bytes(PROTOCOL_VERSION),
-    sha256Bytes(eph_pub),
-    sha256Bytes(kyber_ct),
-    sha256Bytes(new TextEncoder().encode(String(timestamp)))
-  );
-  const ok = await dilithiumVerify(senderPub.dilithium, msg, signature);
-  if (!ok) throw new Error('Handshake signature verification failed');
-
-  const kyber = Kyber.kyber768 || Kyber;
-  const kyber_ss = await kyber.decapsulate(kyber_ct, receiverKeys.kyber.privateKey);
-  const x_ss = x25519.getSharedSecret(receiverKeys.x25519.privateKey, eph_pub);
-
-  const seed = sha256Bytes(concatBytes(x_ss, kyber_ss));
-  const salt = sha256Bytes(PROTOCOL_VERSION);
-  const session_key = hkdfSha256(seed, salt, 'hybrid-session', 32);
-
+  const handshakeData = `${eph_pub_b64}||${kyber_ct_b64}||${timestamp}`;
+  const valid = await dilithiumVerify(handshakeData, signature_b64, senderPub.dilithium);
+  
+  if (!valid) {
+    throw new Error('Handshake signature verification failed');
+  }
+  
+  // Kyber decapsulation
+  const kyber_ss = await kyberDecapsulate(kyber_ct_b64, receiverKeys.kyber);
+  
+  // X25519 shared secret
+  const x_ss = await x25519KeyExchange(receiverKeys.x25519, eph_pub_b64);
+  
+  // Derive session key
+  const session_key_base64 = await deriveSessionKey(x_ss, kyber_ss);
+  const session_key = base64ToUint8(session_key_base64);
+  
   return { session_key };
 }
 
+// Helper functions
+function uint8ToBase64(arr) {
+  let str = String.fromCharCode.apply(null, Array.from(arr));
+  return btoa(str);
+}
+
+function base64ToUint8(str) {
+  const bin = atob(str);
+  const len = bin.length;
+  const arr = new Uint8Array(len);
+  for (let i = 0; i < len; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}

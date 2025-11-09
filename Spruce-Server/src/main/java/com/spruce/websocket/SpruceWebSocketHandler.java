@@ -101,8 +101,14 @@ public class SpruceWebSocketHandler extends TextWebSocketHandler {
                 return;
             }
             
+            @SuppressWarnings("unchecked")
             Map<String, Object> payload = objectMapper.readValue(message.getPayload(), Map.class);
             String type = (String) payload.get("type");
+            
+            if (type == null) {
+                logger.warn("Message missing type field");
+                return;
+            }
             
             switch (type) {
                 case "handshake":
@@ -202,5 +208,8 @@ public class SpruceWebSocketHandler extends TextWebSocketHandler {
         }
     }
 }
+
+
+
 
 

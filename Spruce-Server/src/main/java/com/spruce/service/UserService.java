@@ -49,11 +49,15 @@ public class UserService {
     }
 
     public List<User> searchUsers(String query) {
+        String lowerQuery = query.toLowerCase();
         return userRepository.findAll().stream()
-                .filter(u -> u.getUsername().toLowerCase().contains(query.toLowerCase()) ||
-                           u.getEmail().toLowerCase().contains(query.toLowerCase()))
+                .filter(u -> (u.getUsername() != null && u.getUsername().toLowerCase().contains(lowerQuery)) ||
+                           (u.getEmail() != null && u.getEmail().toLowerCase().contains(lowerQuery)))
                 .toList();
     }
 }
+
+
+
 
 

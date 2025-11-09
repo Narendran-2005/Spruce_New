@@ -44,9 +44,24 @@ public class MessageController {
     public ResponseEntity<Map<String, Object>> sendMessage(Authentication authentication, @RequestBody Map<String, Object> request) {
         User currentUser = (User) authentication.getPrincipal();
         
-        Long receiverId = Long.valueOf(request.get("receiverId").toString());
+        Object receiverIdObj = request.get("receiverId");
+        if (receiverIdObj == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "receiverId is required"));
+        }
+        
+        Long receiverId;
+        if (receiverIdObj instanceof Number) {
+            receiverId = ((Number) receiverIdObj).longValue();
+        } else {
+            receiverId = Long.valueOf(receiverIdObj.toString());
+        }
+        
         String ciphertext = (String) request.get("ciphertext");
         String iv = (String) request.get("iv");
+        
+        if (ciphertext == null || ciphertext.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "ciphertext is required"));
+        }
         
         Message message = new Message();
         message.setSenderId(currentUser.getId());
@@ -75,5 +90,8 @@ public class MessageController {
         return ResponseEntity.ok(messages);
     }
 }
+
+
+
 
 

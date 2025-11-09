@@ -4,7 +4,6 @@ import com.spruce.model.Contact;
 import com.spruce.model.User;
 import com.spruce.repository.ContactRepository;
 import com.spruce.repository.UserRepository;
-import com.spruce.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -21,12 +20,10 @@ public class ContactController {
     
     private final ContactRepository contactRepository;
     private final UserRepository userRepository;
-    private final UserService userService;
 
-    public ContactController(ContactRepository contactRepository, UserRepository userRepository, UserService userService) {
+    public ContactController(ContactRepository contactRepository, UserRepository userRepository) {
         this.contactRepository = contactRepository;
         this.userRepository = userRepository;
-        this.userService = userService;
     }
 
     @GetMapping
@@ -64,5 +61,8 @@ public class ContactController {
         return ResponseEntity.ok(contactRepository.save(contact));
     }
 }
+
+
+
 
 

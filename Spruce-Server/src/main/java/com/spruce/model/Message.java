@@ -39,10 +39,8 @@ public class Message {
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime timestamp;
-
-    private boolean isGroupMessage() {
-        return groupId != null;
-    }
 }
+
+
 
 
