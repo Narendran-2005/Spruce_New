@@ -14,6 +14,10 @@ export default function useWebSocket() {
   const setChats = useSessionStore((s) => s.setChats);
   const chatsRef = useRef(useSessionStore.getState().chats);
   const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const reconnectAttemptsRef = useRef(0);
+  const isConnectingRef = useRef(false);
+  const shouldReconnectRef = useRef(true);
 
   useEffect(() => {
     const unsub = useSessionStore.subscribe((state) => {
@@ -22,113 +26,182 @@ export default function useWebSocket() {
     return () => unsub();
   }, []);
 
-  useEffect(() => {
-    if (!token) return;
-    const url = (import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws') + `?token=${encodeURIComponent(token)}`;
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
+  const connectWebSocket = useCallback(() => {
+    if (!token || isConnectingRef.current) return;
+    
+    // Close existing connection if any
+    if (wsRef.current) {
+      shouldReconnectRef.current = false;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
 
-    ws.onopen = () => {
-      console.log('✅ WebSocket connected');
-    };
-    ws.onmessage = async (ev) => {
-      try {
-        const data = JSON.parse(ev.data);
-        console.log('📨 WebSocket message received:', data.type, 'from:', data.senderId);
-        
-        if (data.type === 'handshake') {
-          // Normalize senderId to string for consistency
-          const senderId = String(data.senderId);
-          console.log('🤝 Processing handshake from:', senderId);
-          try {
-            // Perform receiver side handshake and store session key
-            const perm = decodePermanentKeys(await loadKeys());
-            if (!perm) {
-              console.error('❌ No permanent keys found');
+    isConnectingRef.current = true;
+    const url = (import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws') + `?token=${encodeURIComponent(token)}`;
+    
+    try {
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        isConnectingRef.current = false;
+        reconnectAttemptsRef.current = 0;
+        console.log('✅ WebSocket connected');
+      };
+      
+      ws.onmessage = async (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          console.log('📨 WebSocket message received:', data.type, 'from:', data.senderId);
+          
+          if (data.type === 'handshake') {
+            // Normalize senderId to string for consistency
+            const senderId = String(data.senderId);
+            console.log('🤝 Processing handshake from:', senderId);
+            try {
+              // Perform receiver side handshake and store session key
+              const perm = decodePermanentKeys(await loadKeys());
+              if (!perm) {
+                console.error('❌ No permanent keys found');
+                return;
+              }
+              
+              const senderPub = {
+                x25519: data.sender_pub_x25519, // Already base64 from server
+                kyber: data.sender_kyber_pub, // Already base64 from server
+                dilithium: data.sender_dilithium_pub // Already base64 from server
+              };
+              
+              // Convert base64 strings to Uint8Array for handshake
+              const handshakeData = {
+                eph_pub: typeof data.eph_pub === 'string' ? fromBase64(data.eph_pub) : data.eph_pub,
+                kyber_ct: typeof data.kyber_ct === 'string' ? fromBase64(data.kyber_ct) : data.kyber_ct,
+                timestamp: data.timestamp,
+                signature: typeof data.signature === 'string' ? fromBase64(data.signature) : data.signature
+              };
+              
+              const { session_key } = await receiverHandshake(perm, senderPub, handshakeData, senderId);
+              setSessionKey(senderId, { key: session_key });
+              console.log('✅ Session key established for peer:', senderId);
+            } catch (e) {
+              console.error('❌ Handshake failed:', e);
+            }
+          }
+          
+          if (data.type === 'message') {
+            // Normalize senderId to string for consistency
+            const peerId = String(data.senderId);
+            if (!peerId || peerId === 'undefined' || peerId === 'null') {
+              console.error('❌ Message missing senderId');
               return;
             }
             
-            const senderPub = {
-              x25519: data.sender_pub_x25519, // Already base64 from server
-              kyber: data.sender_kyber_pub, // Already base64 from server
-              dilithium: data.sender_dilithium_pub // Already base64 from server
-            };
+            // Get fresh sessions state
+            const currentSessions = useSessionStore.getState().sessions;
+            const sess = currentSessions[peerId];
             
-            // Convert base64 strings to Uint8Array for handshake
-            const handshakeData = {
-              eph_pub: typeof data.eph_pub === 'string' ? fromBase64(data.eph_pub) : data.eph_pub,
-              kyber_ct: typeof data.kyber_ct === 'string' ? fromBase64(data.kyber_ct) : data.kyber_ct,
-              timestamp: data.timestamp,
-              signature: typeof data.signature === 'string' ? fromBase64(data.signature) : data.signature
-            };
+            if (!sess || !sess.key) {
+              console.warn('⚠️ Message received but no session key for peer:', peerId);
+              console.log('Available sessions:', Object.keys(currentSessions));
+              // Queue message or request handshake - for now, just log
+              return;
+            }
             
-            const { session_key } = await receiverHandshake(perm, senderPub, handshakeData, senderId);
-            setSessionKey(senderId, { key: session_key });
-            console.log('✅ Session key established for peer:', senderId);
-          } catch (e) {
-            console.error('❌ Handshake failed:', e);
+            try {
+              // Ensure ciphertext and iv are base64 strings
+              const ciphertext = typeof data.ciphertext === 'string' ? data.ciphertext : toBase64(data.ciphertext);
+              const iv = typeof data.iv === 'string' ? data.iv : toBase64(data.iv);
+              
+              const plaintext = await aesDecrypt(
+                fromBase64(ciphertext),
+                sess.key,
+                fromBase64(iv),
+                '', // aad
+                peerId
+              );
+              const text = new TextDecoder().decode(plaintext);
+              
+              const updated = { ...chatsRef.current };
+              if (!updated[peerId]) updated[peerId] = [];
+              updated[peerId] = [...updated[peerId], { 
+                id: data.id || crypto.randomUUID(), 
+                senderId: peerId, 
+                text, 
+                ts: data.ts || Date.now() 
+              }];
+              setChats(updated);
+              console.log('✅ Message decrypted and added to chat:', text.substring(0, 50));
+            } catch (e) {
+              console.error('❌ Failed to decrypt message from', peerId, ':', e);
+            }
           }
+        } catch (e) {
+          console.error('❌ WS message error:', e);
+        }
+      };
+      
+      ws.onclose = (event) => {
+        isConnectingRef.current = false;
+        
+        // Don't log normal closures
+        if (event.code !== 1000 && event.code !== 1001) {
+          console.log('🔌 WebSocket closed:', event.code, event.reason || 'No reason provided');
         }
         
-        if (data.type === 'message') {
-          // Normalize senderId to string for consistency
-          const peerId = String(data.senderId);
-          if (!peerId || peerId === 'undefined' || peerId === 'null') {
-            console.error('❌ Message missing senderId');
-            return;
-          }
+        // Only reconnect if we should and it wasn't a normal closure
+        if (shouldReconnectRef.current && event.code !== 1000 && event.code !== 1001) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+          reconnectAttemptsRef.current++;
           
-          // Get fresh sessions state
-          const currentSessions = useSessionStore.getState().sessions;
-          const sess = currentSessions[peerId];
-          
-          if (!sess || !sess.key) {
-            console.warn('⚠️ Message received but no session key for peer:', peerId);
-            console.log('Available sessions:', Object.keys(currentSessions));
-            // Queue message or request handshake - for now, just log
-            return;
-          }
-          
-          try {
-            // Ensure ciphertext and iv are base64 strings
-            const ciphertext = typeof data.ciphertext === 'string' ? data.ciphertext : toBase64(data.ciphertext);
-            const iv = typeof data.iv === 'string' ? data.iv : toBase64(data.iv);
-            
-            const plaintext = await aesDecrypt(
-              fromBase64(ciphertext),
-              sess.key,
-              fromBase64(iv),
-              '', // aad
-              peerId
-            );
-            const text = new TextDecoder().decode(plaintext);
-            
-            const updated = { ...chatsRef.current };
-            if (!updated[peerId]) updated[peerId] = [];
-            updated[peerId] = [...updated[peerId], { 
-              id: data.id || crypto.randomUUID(), 
-              senderId: peerId, 
-              text, 
-              ts: data.ts || Date.now() 
-            }];
-            setChats(updated);
-            console.log('✅ Message decrypted and added to chat:', text.substring(0, 50));
-          } catch (e) {
-            console.error('❌ Failed to decrypt message from', peerId, ':', e);
-          }
+          reconnectTimeoutRef.current = setTimeout(() => {
+            if (shouldReconnectRef.current && token) {
+              console.log(`🔄 Reconnecting WebSocket (attempt ${reconnectAttemptsRef.current})...`);
+              connectWebSocket();
+            }
+          }, delay);
         }
-      } catch (e) {
-        console.error('❌ WS message error:', e);
+      };
+      
+      ws.onerror = (error) => {
+        isConnectingRef.current = false;
+        // Error details are usually in onclose, so we don't need to log here
+        // to avoid duplicate error messages
+      };
+    } catch (error) {
+      isConnectingRef.current = false;
+      console.error('❌ Failed to create WebSocket:', error);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      shouldReconnectRef.current = false;
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    shouldReconnectRef.current = true;
+    connectWebSocket();
+
+    return () => {
+      shouldReconnectRef.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (wsRef.current) {
+        wsRef.current.close(1000, 'Component unmounting');
+        wsRef.current = null;
       }
     };
-    ws.onclose = (event) => {
-      console.log('🔌 WebSocket closed:', event.code, event.reason);
-    };
-    ws.onerror = (error) => {
-      console.error('❌ WebSocket error:', error);
-    };
-    return () => ws.close();
-  }, [token]);
+  }, [token, connectWebSocket]);
 
   const ensureSession = useCallback(async (peer) => {
     // Normalize peer ID to string for consistency

@@ -52,9 +52,6 @@ async function initPQCLibraries() {
     const kyberModuleRaw = await import('pqc-kyber');
     const dilithiumModuleRaw = await import('dilithium-crystals');
 
-    console.log('raw kyber module:', kyberModuleRaw);
-    console.log('raw dilithium module:', dilithiumModuleRaw);
-
     // Initialize if module is a function
     if (typeof kyberModuleRaw === 'function') await kyberModuleRaw();
     if (typeof kyberModuleRaw.default === 'function') await kyberModuleRaw.default();
@@ -67,10 +64,6 @@ async function initPQCLibraries() {
     // Optional internal inits
     if (kyber && typeof kyber.init === 'function') await kyber.init();
     if (dilithium && typeof dilithium.init === 'function') await dilithium.init();
-
-    console.log('✅ PQC libraries loaded successfully');
-    console.log('kyber exports:', Object.keys(kyber || {}));
-    console.log('dilithium exports:', Object.keys(dilithium || {}));
 
     return true;
   } catch (err) {
@@ -323,8 +316,6 @@ export async function aesGCMDecrypt(ciphertextBase64, sessionKeyBase64, nonceBas
 /* ---------- Complete Message Encryption / Decryption ---------- */
 
 export async function encryptMessage(plaintext, recipientPublicKeys, myPrivateKeys) {
-  console.log('🔐 ENCRYPTING MESSAGE\n-------------------');
-  console.log('Using', CRYPTO_CONFIG.useRealCrypto ? 'REAL' : 'SIMULATED', 'crypto');
 
   const ephemeral = await generateEphemeralKey();
   const { ciphertext: kyberCT, sharedSecret: kyberSS } = await kyberEncapsulate(recipientPublicKeys.kyber);
@@ -339,8 +330,6 @@ export async function encryptMessage(plaintext, recipientPublicKeys, myPrivateKe
   const aad = JSON.stringify({ timestamp, senderId: 'me' });
   const { ciphertext, tag } = await aesGCMEncrypt(plaintext, sessionKey, nonce, aad);
 
-  console.log('✅ Encryption workflow complete\n-------------------\n');
-
   return {
     handshake: { ephemeralPublicKey: ephemeral.public, kyberCiphertext: kyberCT, signature, timestamp },
     message: { ciphertext, nonce, tag, aad },
@@ -349,8 +338,6 @@ export async function encryptMessage(plaintext, recipientPublicKeys, myPrivateKe
 }
 
 export async function decryptMessage(encryptedData, senderPublicKeys, myPrivateKeys) {
-  console.log('🔓 DECRYPTING MESSAGE\n-------------------');
-  console.log('Using', CRYPTO_CONFIG.useRealCrypto ? 'REAL' : 'SIMULATED', 'crypto');
 
   const { handshake, message } = encryptedData;
   const handshakeData = `${handshake.ephemeralPublicKey}||${handshake.kyberCiphertext}||${handshake.timestamp}`;
@@ -362,8 +349,6 @@ export async function decryptMessage(encryptedData, senderPublicKeys, myPrivateK
   const sessionKey = await deriveSessionKey(x25519SS, kyberSS);
 
   const plaintext = await aesGCMDecrypt(message.ciphertext, sessionKey, message.nonce, message.tag, message.aad);
-
-  console.log('✅ Decryption workflow complete\n-------------------\n');
 
   return { plaintext, sessionKey };
 }
