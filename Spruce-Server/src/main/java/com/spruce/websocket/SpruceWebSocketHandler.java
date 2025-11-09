@@ -153,7 +153,9 @@ public class SpruceWebSocketHandler extends TextWebSocketHandler {
         
         // Create handshake relay message with sender's public keys
         Map<String, Object> handshakeRelay = new HashMap<>(payload);
+        handshakeRelay.put("type", "handshake"); // Explicitly set type
         handshakeRelay.put("senderId", senderId);
+        // Use public keys from database (they should match what was sent, but DB is source of truth)
         handshakeRelay.put("sender_pub_x25519", sender.getPermPubX25519());
         handshakeRelay.put("sender_kyber_pub", sender.getKyberPub());
         handshakeRelay.put("sender_dilithium_pub", sender.getDilithiumPub());
@@ -161,10 +163,13 @@ public class SpruceWebSocketHandler extends TextWebSocketHandler {
         // Relay handshake to receiver
         WebSocketSession receiverSession = sessions.get(receiverId);
         if (receiverSession != null && receiverSession.isOpen()) {
-            receiverSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(handshakeRelay)));
+            String relayJson = objectMapper.writeValueAsString(handshakeRelay);
+            logger.debug("Relaying handshake to receiver {}: {}", receiverId, relayJson);
+            receiverSession.sendMessage(new TextMessage(relayJson));
             logger.info("Handshake relayed from {} to {}", senderId, receiverId);
         } else {
-            logger.warn("Receiver session not found or closed: {}", receiverId);
+            logger.warn("Receiver session not found or closed: {} (available sessions: {})", 
+                        receiverId, sessions.keySet());
         }
     }
 
@@ -194,6 +199,7 @@ public class SpruceWebSocketHandler extends TextWebSocketHandler {
         
         // Create message relay with senderId
         Map<String, Object> messageRelay = new HashMap<>(payload);
+        messageRelay.put("type", "message"); // Explicitly set type to ensure it's present
         messageRelay.put("senderId", senderId);
         messageRelay.put("id", message.getId());
         messageRelay.put("ts", System.currentTimeMillis());
@@ -201,10 +207,13 @@ public class SpruceWebSocketHandler extends TextWebSocketHandler {
         // Relay to receiver
         WebSocketSession receiverSession = sessions.get(receiverId);
         if (receiverSession != null && receiverSession.isOpen()) {
-            receiverSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(messageRelay)));
+            String relayJson = objectMapper.writeValueAsString(messageRelay);
+            logger.debug("Relaying message to receiver {}: {}", receiverId, relayJson);
+            receiverSession.sendMessage(new TextMessage(relayJson));
             logger.info("Message relayed from {} to {}", senderId, receiverId);
         } else {
-            logger.warn("Receiver session not found or closed: {}", receiverId);
+            logger.warn("Receiver session not found or closed: {} (available sessions: {})", 
+                        receiverId, sessions.keySet());
         }
     }
 }

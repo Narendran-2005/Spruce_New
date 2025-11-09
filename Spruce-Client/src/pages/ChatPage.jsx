@@ -35,10 +35,12 @@ export default function ChatPage() {
   const messages = useMemo(() => (active ? (chats[active.id] || []) : []), [chats, active]);
 
   return (
-    <div className="flex gap-4">
+    <div className="flex gap-4 h-[calc(100vh-5rem)]">
       <Sidebar contacts={contacts} activeId={active?.id} onSelect={setActive} />
-      <div className="flex-1 flex flex-col">
-        <div className="mb-2 font-semibold">{active ? `Chat with ${active.username}` : 'Select a contact'}</div>
+      <div className="flex-1 flex flex-col bg-[#36393f] rounded-lg overflow-hidden">
+        <div className="px-4 py-3 bg-[#2f3136] border-b border-gray-700">
+          <div className="font-semibold text-white">{active ? `Chat with ${active.username}` : 'Select a contact'}</div>
+        </div>
         <ChatWindow messages={messages} selfId={user?.id} />
         {active && (
           <MessageInput onSend={(t) => sendSecureMessage(active, t)} />
