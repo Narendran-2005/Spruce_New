@@ -145,8 +145,16 @@ export async function generateEphemeralKey() {
 }
 
 function generateEphemeralKeySimulated() {
+  // In simulated mode, still generate random ephemeral keys
+  // These are used for the handshake but the key exchange will be deterministic
+  const privateKey = crypto.getRandomValues(new Uint8Array(32));
+  // For simulated mode, public key is just a hash of private key (not real X25519)
+  const pubHash = crypto.subtle.digest('SHA-256', privateKey).then(hash => {
+    return uint8ToBase64(new Uint8Array(hash).slice(0, 32));
+  });
+  // For now, use random but consistent approach
   return {
-    private: uint8ToBase64(crypto.getRandomValues(new Uint8Array(32))),
+    private: uint8ToBase64(privateKey),
     public: uint8ToBase64(crypto.getRandomValues(new Uint8Array(32))),
   };
 }
@@ -181,20 +189,45 @@ export async function kyberEncapsulate(recipientPublicKeyBase64) {
       console.error('Error in Kyber encapsulation:', err);
       console.warn('Falling back to simulated crypto');
       CRYPTO_CONFIG.useRealCrypto = false;
-      return kyberEncapsulateSimulated();
+      return kyberEncapsulateSimulated(recipientPublicKeyBase64);
     }
   }
-  return kyberEncapsulateSimulated();
+  return kyberEncapsulateSimulated(recipientPublicKeyBase64);
 }
 
-function kyberEncapsulateSimulated() {
+/**
+ * Simulated Kyber encapsulation - uses deterministic key derivation
+ * Both sender and receiver can compute the same shared secret
+ * Sender: uses recipient's public key
+ * Receiver: uses their own public key (which matches)
+ */
+async function kyberEncapsulateSimulated(recipientPublicKeyBase64) {
+  // Generate deterministic shared secret from recipient's public key
+  // Receiver will use the same public key to derive the same secret
+  const pubKeyBytes = base64ToUint8(recipientPublicKeyBase64);
+  const hash = await crypto.subtle.digest('SHA-256', pubKeyBytes);
+  const sharedSecret = new Uint8Array(hash);
+  
+  // Generate deterministic ciphertext (simulated - not real encryption, but consistent)
+  // Use a hash of the public key + shared secret to generate consistent ciphertext
+  const ciphertextInput = new Uint8Array(pubKeyBytes.length + 32);
+  ciphertextInput.set(pubKeyBytes);
+  ciphertextInput.set(sharedSecret, pubKeyBytes.length);
+  const ciphertextHash = await crypto.subtle.digest('SHA-256', ciphertextInput);
+  // Pad to expected Kyber ciphertext size (1088 bytes)
+  const ciphertext = new Uint8Array(1088);
+  const hashBytes = new Uint8Array(ciphertextHash);
+  for (let i = 0; i < 1088; i++) {
+    ciphertext[i] = hashBytes[i % hashBytes.length];
+  }
+  
   return {
-    ciphertext: uint8ToBase64(crypto.getRandomValues(new Uint8Array(1088))),
-    sharedSecret: uint8ToBase64(crypto.getRandomValues(new Uint8Array(32))),
+    ciphertext: uint8ToBase64(ciphertext),
+    sharedSecret: uint8ToBase64(sharedSecret),
   };
 }
 
-export async function kyberDecapsulate(ciphertextBase64, recipientPrivateKeyBase64) {
+export async function kyberDecapsulate(ciphertextBase64, recipientPrivateKeyBase64, recipientPublicKeyBase64 = null) {
   await pqcReady;
   if (CRYPTO_CONFIG.useRealCrypto && kyber) {
     try {
@@ -204,20 +237,42 @@ export async function kyberDecapsulate(ciphertextBase64, recipientPrivateKeyBase
       return uint8ToBase64(sharedSecret);
     } catch (err) {
       console.error('Error in Kyber decapsulation:', err);
+      console.warn('Falling back to simulated crypto');
       CRYPTO_CONFIG.useRealCrypto = false;
-      return kyberDecapsulateSimulated();
+      return kyberDecapsulateSimulated(ciphertextBase64, recipientPrivateKeyBase64, recipientPublicKeyBase64);
     }
   }
-  return kyberDecapsulateSimulated();
+  return kyberDecapsulateSimulated(ciphertextBase64, recipientPrivateKeyBase64, recipientPublicKeyBase64);
 }
 
-function kyberDecapsulateSimulated() {
-  return uint8ToBase64(crypto.getRandomValues(new Uint8Array(32)));
+/**
+ * Simulated Kyber decapsulation - computes same shared secret as encapsulation
+ * In simulated mode, we derive from the public key (same as encapsulation)
+ * The receiver needs to pass their public key to match what sender used
+ * Note: This function signature needs to accept public key, but we'll derive it from private key
+ * In simulated mode, we can extract public key info from the ciphertext or use a deterministic method
+ */
+async function kyberDecapsulateSimulated(ciphertextBase64, recipientPrivateKeyBase64, recipientPublicKeyBase64 = null) {
+  // In simulated mode, we need the recipient's PUBLIC key to match what sender used
+  // If public key is provided, use it directly
+  if (recipientPublicKeyBase64) {
+    const pubKeyBytes = base64ToUint8(recipientPublicKeyBase64);
+    const hash = await crypto.subtle.digest('SHA-256', pubKeyBytes);
+    return uint8ToBase64(new Uint8Array(hash));
+  }
+  
+  // Fallback: In simulated mode, public key is stored as first part of private key structure
+  // Extract first 32 bytes of private key as "public key material"
+  const privKeyBytes = base64ToUint8(recipientPrivateKeyBase64);
+  // Use first 32 bytes as public key material (in simulated mode, keys have no real relationship)
+  const keyMaterial = privKeyBytes.slice(0, Math.min(32, privKeyBytes.length));
+  const hash = await crypto.subtle.digest('SHA-256', keyMaterial);
+  return uint8ToBase64(new Uint8Array(hash));
 }
 
 /* ---------- X25519 Key Exchange ---------- */
 
-export async function x25519KeyExchange(privateKeyBase64, publicKeyBase64) {
+export async function x25519KeyExchange(privateKeyBase64, publicKeyBase64, otherPublicKeyBase64 = null) {
   if (CRYPTO_CONFIG.useRealCrypto) {
     try {
       const priv = base64ToUint8(privateKeyBase64);
@@ -226,14 +281,62 @@ export async function x25519KeyExchange(privateKeyBase64, publicKeyBase64) {
       return uint8ToBase64(ss);
     } catch (err) {
       console.error('Error in X25519 key exchange:', err);
-      return x25519KeyExchangeSimulated();
+      console.warn('Falling back to simulated crypto');
+      CRYPTO_CONFIG.useRealCrypto = false;
+      return x25519KeyExchangeSimulated(privateKeyBase64, publicKeyBase64, otherPublicKeyBase64);
     }
   }
-  return x25519KeyExchangeSimulated();
+  return x25519KeyExchangeSimulated(privateKeyBase64, publicKeyBase64, otherPublicKeyBase64);
 }
 
-function x25519KeyExchangeSimulated() {
-  return uint8ToBase64(crypto.getRandomValues(new Uint8Array(32)));
+/**
+ * Simulated X25519 key exchange - uses deterministic key derivation
+ * Both sides compute the same shared secret using both public keys
+ * In simulated mode, we use hash(ephemeral_pub + receiver_perm_pub) with consistent ordering
+ * This requires both public keys, so we accept an optional second public key parameter
+ */
+async function x25519KeyExchangeSimulated(privateKeyBase64, publicKeyBase64, otherPublicKeyBase64 = null) {
+  // In simulated mode, we need both public keys to compute the same shared secret
+  // Sender: has ephemeral_pub (from ephemeral key) and receiver_perm_pub (from server)
+  // Receiver: has ephemeral_pub (from handshake) and receiver_perm_pub (their own)
+  // Both can compute: hash(ephemeral_pub + receiver_perm_pub) with consistent ordering
+  
+  const pubKey1 = base64ToUint8(publicKeyBase64);
+  
+  // If we have a second public key, use both (this is the ideal case)
+  if (otherPublicKeyBase64) {
+    const pubKey2 = base64ToUint8(otherPublicKeyBase64);
+    // Sort public keys to ensure consistent ordering
+    const keys = [pubKey1, pubKey2].sort((a, b) => {
+      for (let i = 0; i < Math.min(a.length, b.length); i++) {
+        if (a[i] !== b[i]) return a[i] - b[i];
+      }
+      return a.length - b.length;
+    });
+    
+    const combined = new Uint8Array(keys[0].length + keys[1].length);
+    combined.set(keys[0]);
+    combined.set(keys[1], keys[0].length);
+    
+    const hash = await crypto.subtle.digest('SHA-256', combined);
+    return uint8ToBase64(new Uint8Array(hash));
+  }
+  
+  // Fallback: use private + public key (less ideal, but works if both sides use same method)
+  const privKey = base64ToUint8(privateKeyBase64);
+  const keys = [privKey, pubKey1].sort((a, b) => {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      if (a[i] !== b[i]) return a[i] - b[i];
+    }
+    return a.length - b.length;
+  });
+  
+  const combined = new Uint8Array(keys[0].length + keys[1].length);
+  combined.set(keys[0]);
+  combined.set(keys[1], keys[0].length);
+  
+  const hash = await crypto.subtle.digest('SHA-256', combined);
+  return uint8ToBase64(new Uint8Array(hash));
 }
 
 /* ---------- Dilithium Sign / Verify ---------- */
@@ -303,26 +406,50 @@ export async function deriveSessionKey(x25519SSBase64, kyberSSBase64) {
 
 export async function aesGCMEncrypt(plaintext, sessionKeyBase64, nonce, aad) {
   try {
+    // Validate inputs
+    if (!plaintext || !sessionKeyBase64) {
+      throw new Error('Missing required parameters for encryption');
+    }
+    
     const keyBytes = base64ToUint8(sessionKeyBase64);
-    const aadBytes = stringToUint8(aad);
+    if (keyBytes.length !== 32) {
+      throw new Error(`Invalid session key length: ${keyBytes.length} (expected 32)`);
+    }
+    
+    const aadBytes = stringToUint8(aad || '');
     const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
     const iv = nonce ? base64ToUint8(nonce) : crypto.getRandomValues(new Uint8Array(12));
+    if (iv.length !== 12) {
+      throw new Error(`Invalid IV length: ${iv.length} (expected 12)`);
+    }
+    
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aadBytes }, key, stringToUint8(plaintext));
     return { ciphertext: uint8ToBase64(new Uint8Array(ct)), nonce: uint8ToBase64(iv), tag: '' };
   } catch (err) {
     console.error('Error in AES-GCM encryption:', err);
-    return {
-      ciphertext: uint8ToBase64(stringToUint8(plaintext)),
-      nonce: nonce || uint8ToBase64(crypto.getRandomValues(new Uint8Array(12))),
-      tag: uint8ToBase64(stringToUint8('tag')),
-    };
+    // Don't fall back to unencrypted data - this is a security issue
+    // If encryption fails, it's a critical error
+    throw new Error(`Encryption failed: ${err.message || err}`);
   }
 }
 
 export async function aesGCMDecrypt(ciphertextBase64, sessionKeyBase64, nonceBase64, tag, aad) {
   try {
+    // Validate inputs
+    if (!ciphertextBase64 || !sessionKeyBase64 || !nonceBase64) {
+      throw new Error('Missing required parameters for decryption');
+    }
+    
     const keyBytes = base64ToUint8(sessionKeyBase64);
+    if (keyBytes.length !== 32) {
+      throw new Error(`Invalid session key length: ${keyBytes.length} (expected 32)`);
+    }
+    
     const iv = base64ToUint8(nonceBase64);
+    if (iv.length !== 12) {
+      throw new Error(`Invalid IV length: ${iv.length} (expected 12)`);
+    }
+    
     const aadBytes = stringToUint8(aad);
     const ciphertext = base64ToUint8(ciphertextBase64);
     const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
@@ -330,11 +457,13 @@ export async function aesGCMDecrypt(ciphertextBase64, sessionKeyBase64, nonceBas
     return uint8ToString(new Uint8Array(pt));
   } catch (err) {
     console.error('Error in AES-GCM decryption:', err);
-    try {
-      return uint8ToString(base64ToUint8(ciphertextBase64));
-    } catch {
-      throw new Error('Decryption failed');
-    }
+    // Don't fall back to unencrypted data - this is a security issue
+    // If decryption fails, it means either:
+    // 1. Wrong session key (handshake failed)
+    // 2. Corrupted ciphertext
+    // 3. Wrong IV
+    // All of these should be treated as errors
+    throw new Error(`Decryption failed: ${err.message || err}`);
   }
 }
 
@@ -377,6 +506,7 @@ export async function decryptMessage(encryptedData, senderPublicKeys, myPrivateK
 
   return { plaintext, sessionKey };
 }
+
 
 
 

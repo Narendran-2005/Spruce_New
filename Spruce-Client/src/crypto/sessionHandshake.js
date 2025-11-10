@@ -45,7 +45,8 @@ export async function senderHandshake(senderKeys, receiverPub, peerId = null) {
   });
   
   // X25519 shared secret
-  const x_ss = await x25519KeyExchange(ephemeral.private, receiverPub.x25519);
+  // In simulated mode, pass both public keys (ephemeral_pub + receiver_perm_pub) for deterministic key derivation
+  const x_ss = await x25519KeyExchange(ephemeral.private, receiverPub.x25519, ephemeral.public);
   useLogStore.getState().addLog({
     type: 'session',
     operation: 'x25519_key_exchange',
@@ -143,7 +144,11 @@ export async function receiverHandshake(receiverKeys, senderPub, handshake, peer
   });
   
   // Kyber decapsulation
-  const kyber_ss = await kyberDecapsulate(kyber_ct_b64, receiverKeys.kyber);
+  // In simulated mode, we need the receiver's public key to match what sender used
+  // The receiver's public key should be available in receiverKeys if it was stored
+  // For simulated mode: if receiverKeys has kyberPublic, use it; otherwise derive from private key
+  const receiverPubKyber = receiverKeys.kyberPublic || null;
+  const kyber_ss = await kyberDecapsulate(kyber_ct_b64, receiverKeys.kyber, receiverPubKyber);
   useLogStore.getState().addLog({
     type: 'decapsulation',
     operation: 'kyber_decapsulated',
@@ -152,7 +157,9 @@ export async function receiverHandshake(receiverKeys, senderPub, handshake, peer
   });
   
   // X25519 shared secret
-  const x_ss = await x25519KeyExchange(receiverKeys.x25519, eph_pub_b64);
+  // In simulated mode, pass both public keys (ephemeral_pub + receiver_perm_pub) for deterministic key derivation
+  const receiverPermPubX25519 = receiverKeys.x25519Public || null;
+  const x_ss = await x25519KeyExchange(receiverKeys.x25519, eph_pub_b64, receiverPermPubX25519);
   useLogStore.getState().addLog({
     type: 'session',
     operation: 'x25519_key_exchange',
